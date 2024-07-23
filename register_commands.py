@@ -2,6 +2,15 @@ import requests
 from dotenv import load_dotenv
 import os
 import time
+import logging
+
+# Initialize logging
+logging.basicConfig(
+    level=logging.INFO,
+    filename="commands.log",
+    filemode="a",
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
 
 load_dotenv()
 
@@ -51,5 +60,5 @@ for command in commands:
         headers=headers,
         json=command,
     )
-    print(response.json())
+    logging.info(f"Registered command {command['name']}: {response.json()}")
     time.sleep(2)  # Delay to handle rate limits

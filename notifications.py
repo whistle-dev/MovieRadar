@@ -1,7 +1,20 @@
+import os
 import discord
 from datetime import datetime, timezone
 from PIL import Image, ImageDraw, ImageFont
 import io
+import logging
+
+# Create logs directory if it doesn't exist
+if not os.path.exists("logs"):
+    os.makedirs("logs")
+
+# Initialize logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler("logs/notifications.log"), logging.StreamHandler()],
+)
 
 
 async def generate_ranking_image(rank):
@@ -25,7 +38,7 @@ async def send_to_channel(new_movies, bot, channel_id):
     channel = bot.get_channel(channel_id)
     if channel:
         for movie in new_movies:
-            rank = movie["rank"]
+            rank = movie.get("rank", 1)
             ranking_image = await generate_ranking_image(rank)
             file = discord.File(ranking_image, filename="ranking.png")
             embed = discord.Embed(
@@ -40,3 +53,4 @@ async def send_to_channel(new_movies, bot, channel_id):
             embed.set_footer(text="MovieRadar", icon_url=bot.user.avatar.url)
 
             await channel.send(embed=embed, file=file)
+            logging.info(f"Sent movie {movie['title']} to channel {channel_id}.")

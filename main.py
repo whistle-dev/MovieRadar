@@ -2,12 +2,24 @@ import os
 import json
 import time
 import discord
+import logging
 from discord.ext import tasks, commands
 from scraper import scrape
 from dotenv import load_dotenv
 from discord import app_commands
 from datetime import datetime, timezone
 from notifications import send_to_channel
+
+# Create logs directory if it doesn't exist
+if not os.path.exists("logs"):
+    os.makedirs("logs")
+
+# Initialize logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler("logs/bot.log"), logging.StreamHandler()],
+)
 
 load_dotenv()
 
@@ -42,18 +54,18 @@ def save_server_settings():
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user}")
+    logging.info(f"Logged in as {bot.user}")
     load_server_settings()
     for guild_id, settings in server_settings.items():
         if settings.get("monitoring", False):
             await start_monitoring(int(guild_id))
     await bot.tree.sync()
-    print("Commands synced")
+    logging.info("Commands synced")
 
 
 async def monitor_trending(guild_id):
     guild_id = str(guild_id)
-    if guild_id in server_settings and server_settings[guild_id]["channel_id"]:
+    if guild_id in server_settings and "channel_id" in server_settings[guild_id]:
         new_movies = scrape()
         if new_movies:
             await send_to_channel(
@@ -62,6 +74,13 @@ async def monitor_trending(guild_id):
                 server_settings[guild_id]["channel_id"],
             )
             last_update_timestamps[guild_id] = datetime.now(timezone.utc)
+            logging.info(
+                f"New movies sent to channel {server_settings[guild_id]['channel_id']}: {[movie['title'] for movie in new_movies]}"
+            )
+        else:
+            logging.info(f"No new movies found for guild {guild_id}.")
+    else:
+        logging.warning(f"Channel ID not set for guild {guild_id}.")
 
 
 async def start_monitoring(guild_id):
@@ -69,12 +88,14 @@ async def start_monitoring(guild_id):
         loop = tasks.loop(seconds=3600)(monitor_trending)
         monitoring_tasks[guild_id] = loop
         loop.start(guild_id)
+        logging.info(f"Started monitoring for guild {guild_id}.")
 
 
 def stop_monitoring(guild_id):
     if guild_id in monitoring_tasks:
         monitoring_tasks[guild_id].cancel()
         del monitoring_tasks[guild_id]
+        logging.info(f"Stopped monitoring for guild {guild_id}.")
 
 
 @bot.tree.command(
@@ -91,6 +112,9 @@ async def setchannel(interaction: discord.Interaction):
         await interaction.response.send_message(
             f"Channel set for movie notifications to <#{interaction.channel_id}>.",
             ephemeral=True,
+        )
+        logging.info(
+            f"Channel set for movie notifications to <#{interaction.channel_id}> for guild {guild_id}."
         )
     else:
         await interaction.response.send_message(
@@ -122,6 +146,9 @@ async def trending(interaction: discord.Interaction):
         new_movies,
         bot,
         interaction.channel_id,
+    )
+    logging.info(
+        f"Trending movies fetched by {interaction.user.name} in guild {guild_id}."
     )
 
 
@@ -159,11 +186,13 @@ async def status(interaction: discord.Interaction):
     )
 
     await interaction.response.send_message(embed=embed, ephemeral=True)
+    logging.info(f"Status command used by {interaction.user.name} in guild {guild_id}.")
 
 
 @bot.tree.command(name="ping", description="Check if the bot is live.")
 async def ping(interaction: discord.Interaction):
     await interaction.response.send_message("Pong!", ephemeral=True)
+    logging.info(f"Ping command used by {interaction.user.name}.")
 
 
 @bot.tree.command(
@@ -172,6 +201,17 @@ async def ping(interaction: discord.Interaction):
 async def startmonitoring(interaction: discord.Interaction):
     guild_id = str(interaction.guild_id)
     if interaction.user.guild_permissions.administrator:
+        if guild_id not in server_settings:
+            server_settings[guild_id] = {}
+        if "channel_id" not in server_settings[guild_id]:
+            await interaction.response.send_message(
+                "Please set the channel first using /setchannel command.",
+                ephemeral=True,
+            )
+            logging.warning(
+                f"Attempt to start monitoring without setting channel in guild {guild_id}."
+            )
+            return
         if server_settings[guild_id].get("monitoring", False):
             channel_id = server_settings[guild_id]["channel_id"]
             await interaction.response.send_message(
@@ -185,6 +225,7 @@ async def startmonitoring(interaction: discord.Interaction):
             await interaction.response.send_message(
                 "Started monitoring for new movies.", ephemeral=True
             )
+            logging.info(f"Started monitoring for new movies in guild {guild_id}.")
     else:
         await interaction.response.send_message(
             "You do not have permission to use this command.", ephemeral=True
@@ -201,6 +242,7 @@ async def stopmonitoring(interaction: discord.Interaction):
         await interaction.response.send_message(
             "Stopped monitoring for new movies.", ephemeral=True
         )
+        logging.info(f"Stopped monitoring for new movies in guild {guild_id}.")
     else:
         await interaction.response.send_message(
             "You do not have permission to use this command.", ephemeral=True
